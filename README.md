@@ -2,6 +2,8 @@
 
 Lightweight Flask dashboard to explore CFIS galaxy imagery through a 2‑D UMAP embedding of the original 192‑dimensional feature vectors. It lets you filter by post-merger stages, color points by any column (linear or log scale), inspect hover thumbnails, request nearest neighbours, and visualize high-dimensional MiniBatchKMeans clusters.
 
+PS: You need the package with the DATA and STATIC folder to run this. Provided under reasonable request.
+
 ## Features
 - Plotly‐GL scatter of every galaxy’s UMAP projection with custom colormaps.
 - Toggle between raw column values (with optional log scaling) and precomputed cluster labels for colorizing.
