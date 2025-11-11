@@ -1,0 +1,352 @@
+<head>
+  <script src="https://cdn.plot.ly/plotly-gl2d-2.26.2.min.js" charset="utf-8"></script>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+  <script src=" https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.min.js "></script>
+  <link href=" https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css " rel="stylesheet">
+  <style>
+    #hover-preview {
+      position: fixed;
+      pointer-events: none;
+      display: none;
+      z-index: 9999;
+      background: rgba(0, 0, 0, 0.85);
+      padding: 6px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      text-align: center;
+      min-width: 150px;
+    }
+    #hover-preview img {
+      width: 280px;
+      height: 280px;
+      object-fit: cover;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      margin-bottom: 4px;
+    }
+    #hover-preview .preview-meta {
+      font-size: 0.75rem;
+      color: #cfd5ff;
+    }
+  </style>
+</head>
+<div class="container-fluid m-0 p-0">
+  <div class="row bg-dark text-white align-items-center py-3 px-4">
+    <div class="col-lg-3 col-12 mb-3 mb-lg-0">
+      <span class="fs-5 fw-semibold">CFIS Representation Explorer</span>
+    </div>
+    <div class="col-lg-9 col-12">
+      <form id="stage" class="row gy-2 gx-3 align-items-center" method="GET" action="/umap">
+        <div class="col-sm-2">
+          <label class="form-label mb-1 text-uppercase small" for="axis">Axis</label>
+          <select class="form-select form-select-sm" id="axis" name="axis" aria-label="Axis selection">
+            <option value="4" {{'selected' if axis==4}}>UMAP2D</option>
+          </select>
+        </div>
+        <div class="col-sm-3">
+          <label class="form-label mb-1 text-uppercase small" for="filter">Filter</label>
+          <select class="form-select form-select-sm" id="filter" name="filter" aria-label="Filter selection">
+            <option value="1" {{'selected' if filter==1}}>All</option>
+            <option value="2" {{'selected' if filter==2}}>Mergers</option>
+            <option value="3" {{'selected' if filter==3}}>Pairs</option>
+            <option value="4" {{'selected' if filter==4}}>Unanimous Post-Mergers</option>
+            <option value="5" {{'selected' if filter==5}}>Simple Post-Mergers</option>
+          </select>
+        </div>
+        <div class="col-sm-4">
+          <label class="form-label mb-1 text-uppercase small" for="col_index">Color Column</label>
+          <select class="form-select form-select-sm" id="col_index" name="col_index" aria-label="Column selection" size="1">
+            {% for index in range(columns | length) %}
+              <option value="{{ index }}" {{'selected' if col_index==index}}>{{ columns[index] }}</option>
+            {% endfor %}
+          </select>
+          <input type="hidden" name="log_scale" id="log_scale_value" value="{{ 1 if log_scale else 0 }}">
+          <div class="form-check form-switch mt-2">
+            <input class="form-check-input" type="checkbox" id="log_scale_toggle" data-log-toggle {{'checked' if log_scale else ''}}>
+            <label class="form-check-label small" for="log_scale_toggle">Log color scale</label>
+          </div>
+        </div>
+        <div class="col-sm-2">
+          <label class="form-label mb-1 text-uppercase small">Color by</label>
+          <div class="btn-group w-100" role="group" aria-label="Color mode toggle">
+            <input type="radio" class="btn-check" name="color_mode" id="color_mode_value" value="value" autocomplete="off" checked data-color-mode>
+            <label class="btn btn-outline-light btn-sm" for="color_mode_value">Column</label>
+            <input type="radio" class="btn-check" name="color_mode" id="color_mode_cluster" value="cluster" autocomplete="off" data-color-mode>
+            <label class="btn btn-outline-light btn-sm" for="color_mode_cluster">Cluster</label>
+          </div>
+        </div>
+        <div class="col-sm-1 d-flex align-items-end">
+          <input class="btn btn-outline-light w-100" type="submit" value="Update"/>
+        </div>
+      </form>
+    </div>
+  </div>
+  <div class="row g-3 p-3">
+    <div class="col-lg-6 col-12">
+    <div id="tester" style="width:500px;height:800px;">
+
+    </div>
+   </div>
+   <div class="col-lg-3 col-12">
+    <img id="load" src="/static/reload.gif" hidden="hidden"></img>
+    <div>
+      <h2>CFIS r-band</h2>
+      <div id="png" style="float: right;"></div>
+    </div>
+   </div>
+   <div class="col-lg-3 col-12">
+   <div>
+      <h2>TNG100</h2>
+      <div id="TNG" style="float: right;"></div>
+    </div>
+    </div>
+  </div>
+</div>
+</div>
+<div id="hover-preview"></div>
+<script>
+
+  var valueColorScale = 'Inferno';
+
+  var clusterLabels = {{ cluster_labels | default([]) | tojson }};
+  var clusterCount = {{ cluster_count | default(0) }};
+  var clusterPalette = buildClusterPalette(clusterCount);
+  var clusterColors = colorizeClusters(clusterLabels, clusterPalette);
+  var valueColors = {{ s | tojson }};
+  var colorMin = {{ color_min }};
+  var colorMax = {{ color_max }};
+  var valueColorbarLabel = '{{colorbar_label}}';
+  var clusterColorbarLabel = 'Cluster ID';
+  var colorModeState = 'value';
+
+  var trace1 = {
+                x: {{ x }},
+                y: {{ y }},
+                text: {{ ids  | tojson }},
+                customdata: {{ s | tojson }},
+                marker: {
+                  size: 5,
+                  colorscale: valueColorScale,
+                  color: valueColors.slice(),
+                  cmin: colorMin,
+                  cmax: colorMax,
+                  opacity: {{ opacity | tojson }},
+                  colorbar: {
+                    title: { text: valueColorbarLabel },
+                    titleside: 'right',
+                  },
+                  showscale: true,
+                },
+                mode: 'markers',
+                type: 'scattergl'
+              };
+              
+
+var layout = {
+ 
+ xaxis: {
+   title: {
+     text: 'UMAP1',
+     font: {
+       family: 'Courier New, monospace',
+       size: 18,
+       color: '#7f7f7f'
+     }
+   },
+   range: [-5, 5.5],
+   type: 'linear',
+ },
+ yaxis: {
+   title: {
+     text: 'UMAP2',
+     font: {
+       family: 'Courier New, monospace',
+       size: 18,
+       color: '#7f7f7f'
+     }
+   }
+ }
+};
+
+
+var data = [trace1];
+var myPlot = document.getElementById("tester");
+var hoverPreview = document.getElementById("hover-preview");
+function setPlotDimensions() {
+  layout.width = 500;
+  layout.height = 800;
+}
+setPlotDimensions();
+var images = document.getElementById('png');
+var imagesTNG = document.getElementById('TNG');
+                    
+Plotly.newPlot(myPlot, data, layout);
+window.addEventListener('resize', function() {
+      Plotly.relayout(myPlot, { width: layout.width, height: layout.height });
+    });
+
+document.querySelectorAll('[data-log-toggle]').forEach(function(toggle) {
+  toggle.addEventListener('change', function() {
+    var hidden = document.getElementById('log_scale_value');
+    if (hidden) {
+      hidden.value = this.checked ? '1' : '0';
+    }
+  });
+});
+
+document.querySelectorAll('[data-color-mode]').forEach(function(input) {
+  input.addEventListener('change', function() {
+    if (this.checked) {
+      setColorMode(this.value);
+    }
+  });
+});
+setColorMode('value');
+
+myPlot.on("plotly_selected", function (eventData) {
+    var selectedPoints = eventData.points;
+    content = ''
+    selectedPoints.forEach(function (item) {
+      url = 'static/PNGS/' + item.text + '.png'
+      tag = '<img src=' + url + '></img>'
+      content += tag
+      console.log(tag)
+      console.log(item.x);
+    })
+    images.innerHTML = content;
+
+  });
+
+
+                    var return_data = [];
+  myPlot.on('plotly_click', function (pts) {
+
+    $("#img").show();
+    
+    for (var i = 0; i < pts.points.length; i++) {
+      id = pts.points[i].text;
+    }
+    
+    $.each(return_data.ids, function (index, item) {
+      console.log(item)
+      data[0].marker.color[item] = 0.0
+    })
+
+
+    $.ajax({
+      url: "/stream?column={{ col_name }}&axis={{ axis }}&stage={{ stage }}&filter={{ filter }}&id=" + id,
+      type: 'GET',
+      contentType: "application/json; charset=utf-8",
+      dataType: "json",
+      success: function (res) {
+        return_data = res;
+        var content = ''
+        var contentTNG = ''
+        $.each(res.ids, function (index, item) {
+          console.log(item)
+          data[0].marker.color[item] = 0.5
+
+          url = 'static/PNGS/' + item + '.png'
+          tag = '<img width=128 src=' + url + '></img>'
+          content += tag
+          console.log(tag)
+          console.log(item.x);
+        })
+        $("#loadingImage").hide();
+        images.innerHTML = content;
+        $.each(res.ids_mock, function (index, item) {
+          console.log(item)
+          
+          url = 'static/pngs_MOCK/' + item + '.png'
+          tag = '<img width=128 src=' + url + '></img>'
+          contentTNG += tag
+          console.log(tag)
+          console.log(item.x);
+        })
+        $("#loadingImage").hide();
+        imagesTNG.innerHTML = contentTNG;
+      }
+    }).done(function (res) {
+      Plotly.redraw(myPlot);
+    });
+
+
+
+  });
+
+  myPlot.on('plotly_hover', function(eventData) {
+    if (!eventData.points.length) {
+      return;
+    }
+    var pt = eventData.points[0];
+    var id = pt.text;
+    var value = colorModeState === 'cluster'
+      ? clusterLabels[pt.pointIndex]
+      : pt.customdata || '';
+    var label = colorModeState === 'cluster'
+      ? clusterColorbarLabel
+      : valueColorbarLabel;
+    var src = '/static/PNGS/' + id + '.png';
+    hoverPreview.innerHTML = '<img src="' + src + '" alt="' + id + '"/>' +
+      '<div class="preview-meta">ID ' + id + '<br>' + label + ': ' + value + '</div>';
+    hoverPreview.style.left = (eventData.event.clientX + 20) + 'px';
+    hoverPreview.style.top = (eventData.event.clientY + 20) + 'px';
+    hoverPreview.style.display = 'block';
+  });
+
+  myPlot.on('plotly_unhover', function() {
+    hoverPreview.style.display = 'none';
+  });
+
+  function setColorMode(mode) {
+    colorModeState = mode;
+    if (!myPlot || !myPlot.data) {
+      return;
+    }
+    if (mode === 'cluster') {
+      Plotly.restyle(myPlot, {
+        'marker.color': [clusterColors],
+        'marker.colorscale': [null],
+        'marker.cmin': [null],
+        'marker.cmax': [null],
+        'marker.showscale': [false],
+        'marker.colorbar.title.text': [clusterColorbarLabel],
+      });
+    } else {
+      Plotly.restyle(myPlot, {
+        'marker.color': [valueColors],
+        'marker.colorscale': [valueColorScale],
+        'marker.cmin': [colorMin],
+        'marker.cmax': [colorMax],
+        'marker.showscale': [true],
+        'marker.colorbar.title.text': [valueColorbarLabel],
+      });
+    }
+  }
+
+  function buildClusterPalette(count) {
+    var palette = ['#ff6b6b', '#feca57', '#48dbfb', '#5f27cd', '#1dd1a1', '#ff9ff3', '#54a0ff', '#ff8f00', '#a29bfe', '#00cec9'];
+    if (count <= palette.length) {
+      return palette.slice(0, Math.max(count, 1));
+    }
+    var extended = [];
+    for (var i = 0; i < count; i++) {
+      extended.push(palette[i % palette.length]);
+    }
+    return extended;
+  }
+
+  function colorizeClusters(labels, palette) {
+    if (!labels || !labels.length) {
+      return [];
+    }
+    var colors = new Array(labels.length);
+    for (var i = 0; i < labels.length; i++) {
+      var idx = Math.abs(parseInt(labels[i], 10) || 0) % palette.length;
+      colors[i] = palette[idx];
+    }
+    return colors;
+  }
+
+</script>
